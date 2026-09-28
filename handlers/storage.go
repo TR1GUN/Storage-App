@@ -1,68 +1,24 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+
+	"storage_app/schemas"
+	"storage_app/storage"
 )
 
-// Интерфейс зависимости (например, репозиторий)
-type UserRepository interface {
-	FindByID(id int) (*User, error)
-}
-
-// Реализация репозитория
-type postgresUserRepo struct {
-	db *sql.DB
-}
-
-func NewPostgresUserRepo(db *sql.DB) *postgresUserRepo {
-	return &postgresUserRepo{db: db}
-}
-
-// Сервис, который использует репозиторий
-type UserService struct {
-	repo UserRepository
-}
-
-func NewUserService(repo UserRepository) *UserService {
-	return &UserService{repo: repo}
-}
-
-func (s *UserService) GetUser(id int) (*User, error) {
-	return s.repo.FindByID(id)
-}
-
-// Обработчик, который зависит от сервиса
-type UserHandler struct {
-	svc *UserService
-}
-
-func NewUserHandler(svc *UserService) *UserHandler {
-	return &UserHandler{svc: svc}
-}
-
-// Реализация интерфейса http.Handler
-func (h *UserHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	user, err := h.svc.GetUser(1)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	fmt.Fprintln(w, user)
-}
-
-//---------------- Сервис ---------------------------
-
-// GetAllRecordsHandler Получаем все возможные записи из нашего хранилища.
-func GetAllRecordsHandler(storage *StorageManager) http.HandlerFunc {
+// GetAllRecordsHandler — GET /records — возвращает все записи.
+func GetAllRecordsHandler(sm *storage.StorageManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
+			return
+		}
 
-		//logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-		records, err := storage.getRecords()
+		records, err := sm.GetAllRecords()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to get records", err.Error())
 			return
@@ -70,22 +26,28 @@ func GetAllRecordsHandler(storage *StorageManager) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(records); err != nil {
-			logger.Error("Error encoding response: %v", err)
+			log.Printf("Error encoding response: %v", err)
 		}
 	}
 }
 
-// GetRecordByIDHandler Получаем запись из хранилища по ее ID
-func GetRecordByIDHandler(storage *StorageManager) http.HandlerFunc {
+// GetRecordByIDHandler — GET /records/{id} — возвращает запись по ID.
+func GetRecordByIDHandler(sm *storage.StorageManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.URL.Path[len("/records/"):] // упрощённо; лучше использовать mux
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
+			return
+		}
+
+		// Извлекаем ID из пути /records/{id}
+		idStr := r.URL.Path[len("/records/"):]
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid ID", err.Error())
 			return
 		}
 
-		record, err := storage.getRecordByID(id)
+		record, err := sm.GetRecordByID(id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to get record", err.Error())
 			return
@@ -102,20 +64,48 @@ func GetRecordByIDHandler(storage *StorageManager) http.HandlerFunc {
 	}
 }
 
-func makeCreateRecordHandler(storage *StorageManager) http.HandlerFunc {
+// CreateRecordHandler — POST /records — создаёт новую запись.
+func CreateRecordHandler(sm *storage.StorageManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var record Record
-		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "Invalid JSON body", err.Error())
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
 			return
 		}
 
-		err := storage.createRecord(record)
-		if err != nil {
+		var record schemas.Record
+		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid JSON body", err.Error())
+			return
+		}
+
+		if err := sm.CreateRecord(record); err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to create record", err.Error())
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(record)
 	}
+}
+
+// Routes — регистрирует все маршруты.
+func Routes(mux *http.ServeMux, sm *storage.StorageManager) {
+	mux.HandleFunc("GET /records", GetAllRecordsHandler(sm))
+	mux.HandleFunc("POST /records", CreateRecordHandler(sm))
+	mux.HandleFunc("GET /records/", GetRecordByIDHandler(sm))
+}
+
+// writeError — возвращает JSON ошибку.
+func writeError(w http.ResponseWriter, code int, message, detail string) {
+	type errorResp struct {
+		Error  string `json:"error"`
+		Detail string `json:"detail,omitempty"`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(errorResp{
+		Error:  message,
+		Detail: detail,
+	})
 }

@@ -1,13 +1,9 @@
 package schemas
 
-// Record — полный аналог pydantic-модели:
-//
-//	class Record(BaseMode
-//	class Record(BaseModel):
-//	    """Наша ожидаемая запись."""
-//	    idx: int
-//	    record: Any
+// Record — запись хранилища.
+// idx — уникальный идентификатор (задаётся пользователем).
+// record — данные в свободном формате.
 type Record struct {
-	Idx    int `json:"idx"`
-	Record Map `json:"record"`
+	ID   int `json:"idx"`
+	Data any `json:"record"`
 }

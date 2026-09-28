@@ -7,27 +7,26 @@ import (
 	"strings"
 )
 
-// ─── ColdStorage ───────────────────────────────────────────
-// ColdStorage - Наше долговременное (Холодное) хранилище
+// ColdStorage — долговременное (холодное) хранилище.
+// Каждая запись хранится в отдельном JSON файле.
 type ColdStorage struct {
 	settings  SettingsApp
 	fileIO    *FileIO
 	serialize *utils.Serialization[schemas.Record]
 }
 
+// NewColdStorage создаёт новый ColdStorage.
 func NewColdStorage(settings SettingsApp) *ColdStorage {
 	return &ColdStorage{
 		settings:  settings,
-		fileIO:    main.NewFileIO(),
-		serialize: main.NewSerialization[main.Record](),
+		fileIO:    NewFileIO(),
+		serialize: utils.NewSerialization[schemas.Record](),
 	}
 }
 
-// CheckUpFiles — проверка необходимых файлов.
-// Поскольку файлы существуют отдельно для каждой записи —
-// проверяем только наличие файла индексации.
+// CheckUpFiles — проверяет наличие индексного файла.
 func (c *ColdStorage) CheckUpFiles() error {
-	exists, err := main.FileExists(c.settings.PathToColdStorageIndexFile)
+	exists, err := FileExists(c.settings.PathToColdStorageIndexFile)
 	if err != nil {
 		return err
 	}
@@ -39,9 +38,9 @@ func (c *ColdStorage) CheckUpFiles() error {
 	return nil
 }
 
-// SaveRecord — сохраняем запись в долговременное хранилище.
-func (c *ColdStorage) SaveRecord(record main.Record) error {
-	filepathStr := c.settings.GetPathToColdStorage(record.ID)
+// SaveRecord — сохраняет запись в cold storage.
+func (c *ColdStorage) SaveRecord(record schemas.Record) error {
+	filepath := c.settings.GetPathToColdStorage(record.ID)
 
 	// Сериализуем и записываем в отдельный файл
 	data, err := c.serialize.Dump(&record)
@@ -49,36 +48,36 @@ func (c *ColdStorage) SaveRecord(record main.Record) error {
 		return fmt.Errorf("serialize record %d: %w", record.ID, err)
 	}
 
-	if err := c.fileIO.WriteDataInFile(filepathStr, data); err != nil {
+	if err := c.fileIO.WriteDataInFile(filepath, data); err != nil {
 		return fmt.Errorf("write record file %d: %w", record.ID, err)
 	}
 
 	// Добавляем путь в индекс-файл
-	if _, err := c.fileIO.AppendToFile(c.settings.PathToColdStorageIndexFile, filepathStr); err != nil {
+	if _, err := c.fileIO.AppendToFile(c.settings.PathToColdStorageIndexFile, filepath); err != nil {
 		return fmt.Errorf("append to index: %w", err)
 	}
 
 	return nil
 }
 
-// ReadRecordByID — читаем запись по ID.
-func (c *ColdStorage) ReadRecordByID(idx int) (*main.Record, error) {
-	filepathStr := c.settings.GetPathToColdStorage(idx)
+// ReadRecordByID — читает запись по ID.
+func (c *ColdStorage) ReadRecordByID(id int) (*schemas.Record, error) {
+	filepath := c.settings.GetPathToColdStorage(id)
 
-	exists, err := main.FileExists(filepathStr)
+	exists, err := FileExists(filepath)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
-		return nil, nil // аналог return None
+		return nil, nil
 	}
 
-	return c.getRecordByPath(filepathStr)
+	return c.getRecordByPath(filepath)
 }
 
-// getRecordByPath — получение данных по пути.
-func (c *ColdStorage) getRecordByPath(filepathStr string) (*main.Record, error) {
-	fileData, err := c.fileIO.ReadDataFromFile(filepathStr)
+// getRecordByPath — читает запись по пути к файлу.
+func (c *ColdStorage) getRecordByPath(file string) (*schemas.Record, error) {
+	fileData, err := c.fileIO.ReadDataFromFile(file)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +93,8 @@ func (c *ColdStorage) getRecordByPath(filepathStr string) (*main.Record, error) 
 	return rec, nil
 }
 
-// ReadAll — читаем все записи долговременного хранилища.
-func (c *ColdStorage) ReadAll() ([]main.Record, error) {
+// ReadAll — читает все записи cold storage.
+func (c *ColdStorage) ReadAll() ([]schemas.Record, error) {
 	fileData, err := c.fileIO.ReadDataFromFile(c.settings.PathToColdStorageIndexFile)
 	if err != nil {
 		return nil, err
@@ -103,14 +102,14 @@ func (c *ColdStorage) ReadAll() ([]main.Record, error) {
 
 	filepaths := strings.Split(fileData, "\n")
 
-	var records []main.Record
+	var records []schemas.Record
 	for _, fp := range filepaths {
 		if fp == "" {
 			continue
 		}
 		rec, err := c.getRecordByPath(fp)
 		if err != nil {
-			continue // пропускаем битые/недоступные файлы
+			continue
 		}
 		if rec != nil {
 			records = append(records, *rec)

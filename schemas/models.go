@@ -1,4 +1,4 @@
-package main
+package schemas
 
 // import (
 //
@@ -6,10 +6,10 @@ package main
 //	"fmt"
 //
 // )
-type Record struct {
-	ID   int    `json:"id"`
-	Data string `json:"record"`
-}
+//type Record struct {
+//	ID   int    `json:"id"`
+//	Data string `json:"record"`
+//}
 
 //Поскольку мы работаем сразу со структурой,
 //логичнее бы инкапсулировать логику сериализации прямо в нее.

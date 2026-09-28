@@ -2,23 +2,34 @@ package settings
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 )
 
-// ─── Расширение SettingsApp ─────────────────────────────────
-
-// SettingsApp Настройки нашего приложения
+// SettingsApp — конфигурация приложения.
 type SettingsApp struct {
 	PathToHotStorage           string
 	PathToColdStorageDir       string
 	PathToColdStorageIndexFile string
 }
 
-// GetPathToColdStorage — путь к файлу конкретной записи в холодном хранилище.
+// LoadSettings загружает настройки из переменных окружения с дефолтными значениями.
+func LoadSettings() SettingsApp {
+	return SettingsApp{
+		PathToHotStorage:           getEnv("HOT_STORAGE_PATH", "data/hot_storage.jsonl"),
+		PathToColdStorageDir:       getEnv("COLD_STORAGE_DIR", "data/cold/"),
+		PathToColdStorageIndexFile: getEnv("COLD_STORAGE_INDEX", "data/cold/index.txt"),
+	}
+}
+
+// GetPathToColdStorage возвращает путь к файлу конкретной записи в холодном хранилище.
 func (s *SettingsApp) GetPathToColdStorage(idx int) string {
 	return filepath.Join(s.PathToColdStorageDir, fmt.Sprintf("record_%d.json", idx))
 }
 
-func Get_settings() SettingsApp {
-	return SettingsApp{}
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }

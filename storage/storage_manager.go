@@ -1,32 +1,34 @@
 package storage
 
 import (
+	"storage_app/schemas"
+	"storage_app/settings"
 	"sync"
 )
 
-// ─── StorageManager ─────────────────────────────────────────
+// SettingsApp — алиас для настроек.
+type SettingsApp = settings.SettingsApp
 
+// StorageManager — управляет hot и cold хранилищами.
 type StorageManager struct {
+	mu          sync.Mutex
 	settings    SettingsApp
 	hotStorage  *HotStorage
 	coldStorage *ColdStorage
 }
 
+// NewStorageManager создаёт новый StorageManager.
 func NewStorageManager() *StorageManager {
-	settings := SettingsApp{
-		PathToHotStorage:           "data/hot_storage.jsonl",
-		PathToColdStorageDir:       "data/cold/",
-		PathToColdStorageIndexFile: "data/cold/index.txt",
-	}
+	s := settings.LoadSettings()
 	return &StorageManager{
-		settings:    settings,
-		hotStorage:  NewHotStorage(settings),
-		coldStorage: NewColdStorage(settings),
+		settings:    s,
+		hotStorage:  NewHotStorage(s),
+		coldStorage: NewColdStorage(s),
 	}
 }
 
-// Startup — работа при старте.
-// Инициализируем файлы, переносим записи из Hot в Cold.
+// Startup — инициализация при старте.
+// Проверяет файлы и мигрирует данные из Hot в Cold.
 func (m *StorageManager) Startup() error {
 	if err := m.hotStorage.CheckUpFiles(); err != nil {
 		return err
@@ -34,11 +36,11 @@ func (m *StorageManager) Startup() error {
 	if err := m.coldStorage.CheckUpFiles(); err != nil {
 		return err
 	}
-	return m.migrateFromTemp()
+	return m.migrateFromHotToCold()
 }
 
-// migrateFromTemp — миграция из горячего хранилища в холодное + очистка temp.
-func (m *StorageManager) migrateFromTemp() error {
+// migrateFromHotToCold — миграция из hot в cold хранилище.
+func (m *StorageManager) migrateFromHotToCold() error {
 	records, err := m.hotStorage.GetAllRecords()
 	if err != nil {
 		return err
@@ -47,52 +49,35 @@ func (m *StorageManager) migrateFromTemp() error {
 		return nil
 	}
 
-	// Аналог asyncio.gather — запускаем сохранение всех записей конкурентно.
-	// В Go для этого используем errgroup или WaitGroup + горутины.
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(records))
-
+	// Сохраняем все записи последовательно (без гонки за индексный файл)
 	for _, record := range records {
-		wg.Add(1)
-		go func(r main.Record) {
-			defer wg.Done()
-			if err := m.coldStorage.SaveRecord(r); err != nil {
-				errChan <- err
-			}
-		}(record)
-	}
-
-	wg.Wait()
-	close(errChan)
-
-	for err := range errChan {
-		if err != nil {
-			return err // возвращаем первую ошибку
+		if err := m.coldStorage.SaveRecord(record); err != nil {
+			return err
 		}
 	}
 
-	// Очистка горячего хранилища после успешной миграции
+	// Очищаем hot storage после успешной миграции
 	return m.hotStorage.ClearUp()
 }
 
-// Shutdown — работа при завершении.
-// Пока заглушка.
+// Shutdown — завершение работы.
 func (m *StorageManager) Shutdown() error {
 	return nil
 }
 
-// GetAllRecords — все записи с сервера (Hot + Cold).
-func (m *StorageManager) GetAllRecords() ([]main.Record, error) {
-	var records []main.Record
+// GetAllRecords — возвращает все записи (hot + cold).
+func (m *StorageManager) GetAllRecords() ([]schemas.Record, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Шаг 1: Hot Storage
+	var records []schemas.Record
+
 	hotRecords, err := m.hotStorage.GetAllRecords()
 	if err != nil {
 		return nil, err
 	}
 	records = append(records, hotRecords...)
 
-	// Шаг 2: Cold Storage
 	coldRecords, err := m.coldStorage.ReadAll()
 	if err != nil {
 		return nil, err
@@ -102,10 +87,13 @@ func (m *StorageManager) GetAllRecords() ([]main.Record, error) {
 	return records, nil
 }
 
-// GetRecordByID — запись по ID (сначала Hot, потом Cold).
-func (m *StorageManager) GetRecordByID(idx int) (*main.Record, error) {
-	// Шаг 1: Hot Storage
-	record, err := m.hotStorage.GetRecord(idx)
+// GetRecordByID — ищет запись по ID (сначала hot, потом cold).
+func (m *StorageManager) GetRecordByID(id int) (*schemas.Record, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Сначала ищем в hot storage
+	record, err := m.hotStorage.GetRecord(id)
 	if err != nil {
 		return nil, err
 	}
@@ -113,8 +101,8 @@ func (m *StorageManager) GetRecordByID(idx int) (*main.Record, error) {
 		return record, nil
 	}
 
-	// Шаг 2: Cold Storage
-	record, err = m.coldStorage.ReadRecordByID(idx)
+	// Потом в cold storage
+	record, err = m.coldStorage.ReadRecordByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -122,11 +110,13 @@ func (m *StorageManager) GetRecordByID(idx int) (*main.Record, error) {
 		return record, nil
 	}
 
-	return nil, nil // не найдено
+	return nil, nil
 }
 
-// CreateRecord — создаём запись в хранилище.
-// Возвращает текст ошибки (пустая строка = успех) и системную ошибку.
-func (m *StorageManager) CreateRecord(record main.Record) (string, error) {
+// CreateRecord — создаёт запись в hot storage.
+func (m *StorageManager) CreateRecord(record schemas.Record) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	return m.hotStorage.SaveRecord(record)
 }
