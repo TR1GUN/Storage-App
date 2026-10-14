@@ -88,24 +88,3 @@ func CreateRecordHandler(sm *storage.StorageManager) http.HandlerFunc {
 		json.NewEncoder(w).Encode(record)
 	}
 }
-
-// Routes — регистрирует все маршруты.
-func Routes(mux *http.ServeMux, sm *storage.StorageManager) {
-	mux.HandleFunc("GET /records", GetAllRecordsHandler(sm))
-	mux.HandleFunc("POST /records", CreateRecordHandler(sm))
-	mux.HandleFunc("GET /records/", GetRecordByIDHandler(sm))
-}
-
-// writeError — возвращает JSON ошибку.
-func writeError(w http.ResponseWriter, code int, message, detail string) {
-	type errorResp struct {
-		Error  string `json:"error"`
-		Detail string `json:"detail,omitempty"`
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(errorResp{
-		Error:  message,
-		Detail: detail,
-	})
-}
