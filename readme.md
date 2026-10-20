@@ -127,3 +127,221 @@ idx: ID записи
 - Перезапускаем приложение по истечении временого цикла.
 
 # Конечная реализация в коде:
+
+## Структура проекта
+
+```
+Storage-App/
+├── main.go                 # Точка входа
+├── go.mod                  # Модуль Go (0 внешних зависимостей)
+├── Dockerfile              # Docker-образ для Go-версии
+├── docker-compose.yml      # Оркестрация сервисов
+├── benchmark.sh            # Быстрый curl-тест
+├── run_go.sh               # Скрипт запуска сервера
+├── run_benchmark.sh        # Скрипт запуска бенчмарка
+├── handlers/
+│   ├── storage.go          # HTTP handlers
+│   └── responses.go        # JSON error responses
+├── schemas/
+│   └── records.go          # Модель Record
+├── settings/
+│   └── settings.go         # Конфигурация (.env)
+├── storage/
+│   ├── storage_manager.go  # Управление хранилищами
+│   ├── hot_storage.go      # Горячее хранилище (JSONL)
+│   ├── cold_storage.go     # Холодное хранилище (файлы)
+│   └── file_io.go          # File I/O с кэшированием
+├── utils/
+│   └── serilizator.go      # JSON сериализация
+└── benchmark/
+    ├── main.go             # Go-бенчмарк
+    ├── go.mod              # Модуль бенчмарка
+    └── Dockerfile          # Docker-образ для бенчмарка
+```
+
+---
+
+## Архитектура
+
+### Hot Storage (Горячее)
+- Формат: JSONL (JSON Lines) — по строке на запись
+- Индексы в памяти: `map[int]PositionToFile`
+- Быстрая запись, данные хранятся до перезапуска
+
+### Cold Storage (Холодное)
+- Формат: отдельные JSON файлы в директории
+- Индексный файл: пути ко всем файлам записей
+- Миграция из Hot при старте приложения
+
+## Жизненный цикл
+1. Старт → создание файлов
+2. Миграция Hot → Cold
+3. HTTP запросы → запись в Hot
+4. Перезапуск → миграция накопленных данных в Cold
+---
+
+# Запуск
+
+## Локально (Go)
+
+```bash
+# Сборка и запуск
+go build -o storage_app . && ./storage_app
+
+# Или через скрипт
+./run_go.sh
+```
+
+Сервер запустится на порту `:8000`.
+
+## Через Docker
+
+```bash
+# Сборка и запуск
+docker-compose up --build
+
+# Запуск в фоне
+docker-compose up -d
+
+# Остановка
+docker-compose down
+```
+
+## Через Docker Compose с бенчмарком
+
+```bash
+# Запуск сервера и бенчмарка
+docker-compose up --build
+
+# Бенчмарк запустится автоматически после старта сервера
+```
+
+---
+
+# Проверка работоспособности
+
+## Через curl
+
+```bash
+# Создать запись
+curl -X POST http://127.0.0.1:8000/records \
+  -H "Content-Type: application/json" \
+  -d '{"idx":"test-001","record":{"data":"Hello World","value":42}}'
+
+# Получить запись по ID
+curl http://127.0.0.1:8000/records/test-001
+
+# Получить все записи
+curl http://127.0.0.1:8000/records
+```
+
+## Быстрый тест (bash)
+
+```bash
+./benchmark.sh
+```
+
+---
+
+# Бенчмарк
+
+## Локально
+
+```bash
+# Запустить сервер в одном терминале
+./run_go.sh
+
+# В другом терминале запустить бенчмарк
+./run_benchmark.sh
+```
+
+## Через Docker
+
+```bash
+# Бенчмарк против Docker-контейнера
+docker build -t benchmark -f benchmark/Dockerfile .
+docker run --env BENCHMARK_URL=http://host.docker.internal:8000 benchmark
+```
+
+## Настройка
+
+```bash
+# Количество записей для бенчмарка
+BENCHMARK_RECORDS=500 ./run_benchmark.sh
+
+# URL сервера
+BENCHMARK_URL=http://my-server:8000 ./run_benchmark.sh
+```
+
+---
+
+# Производительность
+
+## Метрики
+
+Бенчмарк запускается через `./run_benchmark.sh` или `docker run benchmark`.
+
+| Метрика | Описание |
+|---------|----------|
+| **Save** | Конкурентная запись N записей (горутин) |
+| **Get** | Конкурентное чтение N записей по ID |
+| **List** | Получение всех записей |
+| **Throughput** | Запросов в секунду |
+
+## Ожидаемые результаты
+
+| Версия | Save 200 | Get 100 | List | Throughput |
+|--------|----------|---------|------|------------|
+| Go (std) | ~0.1-0.3s | ~0.05-0.15s | ~0.01-0.05s | 500-2000 req/s |
+
+## Сравнение с другими реализациями
+
+| Версия | Язык | Зависимости | Save 200 | Get 100 |
+|--------|------|-------------|----------|---------|
+| Go (Pure stdlib) | Go 1.24 | 0 | ~0.1-0.3s | ~0.05-0.15s |
+| FastAPI | Python 3.14 | uvicorn, fastapi, pydantic | ~0.2-0.5s | ~0.1-0.3s |
+| Aiohttp | Python 3.14 | aiohttp, aiofiles | ~0.3-0.6s | ~0.15-0.4s |
+
+## Почему Go быстрее
+
+1. **Компиляция в нативный код** — нет VM/интерпретатора
+2. **Горутины** — лёгкие конкурентные потоки (vs asyncio event loop)
+3. **Нулевые зависимости** — нет накладных расходов сериализации (pydantic)
+4. **GC оптимизирован** под low-latency — меньше pause times
+5. **Стандартная библиотека** — `encoding/json` написан на Go, без Python overhead
+
+---
+
+# Конфигурация
+
+Настройки задаются через переменные окружения:
+
+| Переменная | По умолчанию | Описание |
+|------------|-------------|----------|
+| `HOT_STORAGE_PATH` | `data/hot_storage.jsonl` | Путь к файлу горячего хранилища |
+| `COLD_STORAGE_DIR` | `data/cold/` | Путь к директории холодного хранилища |
+| `COLD_STORAGE_INDEX` | `data/cold/index.txt` | Путь к индексному файлу |
+
+---
+
+# API Endpoints
+
+| Метод | Endpoint | Описание |
+|-------|----------|----------|
+| `POST` | `/records` | Создать/обновить запись |
+| `GET` | `/records` | Получить все записи |
+| `GET` | `/records/{id}` | Получить запись по ID |
+
+### Формат записи
+
+```json
+{
+  "idx": "user-defined-id",
+  "record": {
+    "data": "any data",
+    "value": 42
+  }
+}
+```
+
+---

@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  storage_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - HOT_STORAGE_PATH=/app/data/hot_storage.jsonl
+      - COLD_STORAGE_DIR=/app/data/cold/
+      - COLD_STORAGE_INDEX=/app/data/cold/index.txt
+    restart: unless-stopped
+
+  benchmark:
+    build:
+      context: ./benchmark
+      dockerfile: Dockerfile
+    environment:
+      - BENCHMARK_URL=http://storage_app:8000
+      - BENCHMARK_RECORDS=200
+    depends_on:
+      - storage_app

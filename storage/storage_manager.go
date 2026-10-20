@@ -27,19 +27,8 @@ func NewStorageManager() *StorageManager {
 	}
 }
 
-// Startup — инициализация при старте.
-// Проверяет файлы и мигрирует данные из Hot в Cold.
-func (m *StorageManager) Startup() error {
-	if err := m.hotStorage.CheckUpFiles(); err != nil {
-		return err
-	}
-	if err := m.coldStorage.CheckUpFiles(); err != nil {
-		return err
-	}
-	return m.migrateFromHotToCold()
-}
-
 // migrateFromHotToCold — миграция из hot в cold хранилище.
+// Вызывается только под блокировкой m.mu.
 func (m *StorageManager) migrateFromHotToCold() error {
 	records, err := m.hotStorage.GetAllRecords()
 	if err != nil {
@@ -63,6 +52,21 @@ func (m *StorageManager) migrateFromHotToCold() error {
 // Shutdown — завершение работы.
 func (m *StorageManager) Shutdown() error {
 	return nil
+}
+
+// Startup — инициализация при старте.
+// Проверяет файлы и мигрирует данные из Hot в Cold.
+func (m *StorageManager) Startup() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if err := m.hotStorage.CheckUpFiles(); err != nil {
+		return err
+	}
+	if err := m.coldStorage.CheckUpFiles(); err != nil {
+		return err
+	}
+	return m.migrateFromHotToCold()
 }
 
 // GetAllRecords — возвращает все записи (hot + cold).

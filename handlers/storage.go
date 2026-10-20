@@ -14,13 +14,13 @@ import (
 func GetAllRecordsHandler(sm *storage.StorageManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
+			SendErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed", "")
 			return
 		}
 
 		records, err := sm.GetAllRecords()
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to get records", err.Error())
+			SendErrorResponse(w, http.StatusInternalServerError, "Failed to get records", err.Error())
 			return
 		}
 
@@ -35,7 +35,7 @@ func GetAllRecordsHandler(sm *storage.StorageManager) http.HandlerFunc {
 func GetRecordByIDHandler(sm *storage.StorageManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
+			SendErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed", "")
 			return
 		}
 
@@ -43,17 +43,17 @@ func GetRecordByIDHandler(sm *storage.StorageManager) http.HandlerFunc {
 		idStr := r.URL.Path[len("/records/"):]
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "Invalid ID", err.Error())
+			SendErrorResponse(w, http.StatusBadRequest, "Invalid ID", err.Error())
 			return
 		}
 
 		record, err := sm.GetRecordByID(id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to get record", err.Error())
+			SendErrorResponse(w, http.StatusInternalServerError, "Failed to get record", err.Error())
 			return
 		}
 		if record == nil {
-			writeError(w, http.StatusNotFound, "Record not found", "")
+			SendErrorResponse(w, http.StatusNotFound, "Record not found", "")
 			return
 		}
 
@@ -68,18 +68,18 @@ func GetRecordByIDHandler(sm *storage.StorageManager) http.HandlerFunc {
 func CreateRecordHandler(sm *storage.StorageManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "Method not allowed", "")
+			SendErrorResponse(w, http.StatusMethodNotAllowed, "Method not allowed", "")
 			return
 		}
 
 		var record schemas.Record
 		if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-			writeError(w, http.StatusBadRequest, "Invalid JSON body", err.Error())
+			SendErrorResponse(w, http.StatusBadRequest, "Invalid JSON body", err.Error())
 			return
 		}
 
 		if err := sm.CreateRecord(record); err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to create record", err.Error())
+			SendErrorResponse(w, http.StatusInternalServerError, "Failed to create record", err.Error())
 			return
 		}
 

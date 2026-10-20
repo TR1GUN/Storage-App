@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-// writeError — возвращает JSON ошибку.
-func writeError(w http.ResponseWriter, code int, message, detail string) {
+// SendErrorResponse — возвращает JSON ошибку.
+func SendErrorResponse(w http.ResponseWriter, code int, message, detail string) {
 	type errorResp struct {
 		Error  string `json:"error"`
 		Detail string `json:"detail,omitempty"`

@@ -65,19 +65,3 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-
-//func main() {
-//	sm := storage.NewStorageManager()
-//
-//	if err := sm.Startup(); err != nil {
-//		log.Fatalf("Startup failed: %v", err)
-//	}
-//
-//	mux := http.NewServeMux()
-//	handlers.Routes(mux, sm)
-//
-//	log.Println("Server starting on :8000")
-//	if err := http.ListenAndServe(":8000", mux); err != nil {
-//		log.Fatalf("Server error: %v", err)
-//	}
-//}

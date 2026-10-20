@@ -4,11 +4,13 @@ import (
 	"storage_app/schemas"
 	"storage_app/utils"
 	"strings"
+	"sync"
 )
 
 // HotStorage — временное (горячее) хранилище.
 // Данные хранятся в одном файле (JSONL), индексы — в памяти.
 type HotStorage struct {
+	mu        sync.Mutex
 	indexes   map[int]PositionToFile
 	settings  SettingsApp
 	fileIO    *FileIO
@@ -42,6 +44,9 @@ func (h *HotStorage) CheckUpFiles() error {
 // SaveRecord — сохраняет запись в hot storage.
 // Если запись с таким ID уже существует — перезаписывает её.
 func (h *HotStorage) SaveRecord(record schemas.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	data, err := h.serialize.Dump(&record)
 	if err != nil {
 		return err
@@ -67,6 +72,7 @@ func (h *HotStorage) SaveRecord(record schemas.Record) error {
 }
 
 // overwriteRecord — перезаписывает запись в файле по ID.
+// Вызывается только под блокировкой h.mu.
 func (h *HotStorage) overwriteRecord(id int, newData string) error {
 	// Читаем весь файл
 	allData, err := h.fileIO.ReadDataFromFile(h.settings.PathToHotStorage)
